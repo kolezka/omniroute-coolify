@@ -20,8 +20,11 @@ Image facts (verified against the registry config, tag `latest` = 3.8.46):
 1. Coolify → project → **New Resource → Docker Compose Empty**, paste the
    contents of `docker-compose.yml`.
 2. Coolify auto-generates all secrets (`SERVICE_*` magic variables) and a
-   domain pointing at port 20128. Change the domain in the `omniroute`
-   service settings (it must be **HTTPS** — see `AUTH_COOKIE_SECURE` below).
+   domain. Change the domain in the `omniroute` service settings — it must
+   be **HTTPS** (see `AUTH_COOKIE_SECURE` below) **and must include the
+   container port**: `https://<your-domain>:20128`. Without `:20128`
+   Coolify forwards to port 80 and every request returns **502** (see
+   Troubleshooting).
 3. **Deploy.** The container reports `healthy` after ~15–30 s.
 4. First dashboard login: `https://<your-domain>` — find the password in
    Coolify → **Environment Variables** → the value of
@@ -92,3 +95,48 @@ container runs as `node` (uid 1000); with a named volume Docker handles
 the permissions. If you switch to a host bind-mount, set the owner:
 `chown -R 1000:1000 <directory>` — otherwise the entrypoint
 (`check-permissions.sh`) stops the startup with fix instructions.
+
+## Troubleshooting
+
+### 502 Bad Gateway — `dial tcp <ip>:80: connect: connection refused`
+
+The reverse proxy is forwarding to container port **80**, but OmniRoute
+listens on **20128**. Fix the routing target:
+
+- **Coolify → `omniroute` service → Domains** must read
+  `https://<your-domain>:20128`. The `:20128` is the *internal* container
+  port the proxy forwards to; public serving stays on HTTPS/443.
+- Save and **Redeploy**.
+
+Tell-tale: the port in the error is `:80`. If it instead reads `:20128`,
+the routing is correct and the app itself is down — see the next entry.
+
+### Crash loop on startup — `Error: file data stream has unexpected number of bytes`
+
+```
+Error: file data stream has unexpected number of bytes
+    at .build/next/server/chunks/_*.js
+⨯ uncaughtException
+```
+
+The published image ships **corrupted prebuilt Turbopack chunks** from
+**v3.8.45** onward (incl. `latest` = 3.8.46). Next.js reads a chunk whose
+on-disk byte count doesn't match its manifest and the process crashes.
+
+- Fix: set `OMNIROUTE_USE_TURBOPACK=0` (already in `docker-compose.yml` and
+  `.env.example`) to fall back to the working webpack bundler, then
+  Redeploy.
+- Alternative: pin the last pre-regression release,
+  `image: diegosouzapw/omniroute:3.8.44`.
+- Upstream: OmniRoute issues
+  [#6498](https://github.com/diegosouzapw/OmniRoute/issues/6498),
+  [#6555](https://github.com/diegosouzapw/OmniRoute/issues/6555). Drop the
+  workaround once a fixed image ships.
+
+### Redis log — `WARNING Memory overcommit must be enabled!`
+
+Harmless advisory from the `redis` sidecar, unrelated to OmniRoute. It only
+matters under memory pressure (a background RDB save could fail). To silence
+it, on the **Coolify host** run `sudo sysctl vm.overcommit_memory=1` and add
+`vm.overcommit_memory = 1` to `/etc/sysctl.conf`. It's a host kernel
+setting — it cannot be set from the compose file.
