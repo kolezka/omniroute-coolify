@@ -70,6 +70,15 @@ services:
 
       # ── RUNTIME (optional) ──
       - NODE_ENV=production
+      # WORKAROUND for a bug in the published image: builds from v3.8.45
+      # onward (incl. latest = 3.8.46) ship corrupted prebuilt Turbopack
+      # chunks, so the app crashes on startup with an uncaughtException:
+      #   Error: file data stream has unexpected number of bytes
+      #     at .build/next/server/chunks/_*.js
+      # Setting this to 0 falls back to the (working) webpack bundler.
+      # Upstream: github.com/diegosouzapw/OmniRoute/issues/6498 and /6555
+      # Remove once a fixed image ships (or pin image: ...:3.8.44 instead).
+      - OMNIROUTE_USE_TURBOPACK=0
       # Default heap limit = 1024 MB. Under heavier load raise BOTH:
       # - OMNIROUTE_MEMORY_MB=2048
       # - NODE_OPTIONS=--max-old-space-size=2048
