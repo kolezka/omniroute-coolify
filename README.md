@@ -18,36 +18,57 @@ Image facts, read from the registry manifest for tag `3.8.50` on 2026-09-05:
 
 ## Deploy
 
-1. Coolify → project → **New Resource → Docker Compose Empty**. Paste
-   `docker-compose.yml` from this repo.
+Deploy **from this repository**. Coolify then injects the public URL itself,
+which the pasted-compose path cannot do correctly (see the alternative below).
+The repo is public, so Coolify needs no deploy key.
 
-2. **Set `OMNIROUTE_PUBLIC_URL`** under Environment Variables, for example
-   `https://omniroute.example.com`. Include the scheme, no trailing slash.
-   This is the only value you must supply by hand; everything else is
-   generated. It feeds `NEXT_PUBLIC_BASE_URL`, which OmniRoute uses for
-   OAuth callbacks and for every link the dashboard builds.
+1. Coolify → project → **New Resource → Public Repository**. Give it
+   `https://github.com/kolezka/omniroute-coolify`, branch `main`, and pick
+   **Docker Compose** as the build pack. The compose file is at the repo root.
 
-3. **Domain.** Coolify assigns a generated domain from
-   `SERVICE_FQDN_OMNIROUTE_20128`. To use your own instead, set the
-   `omniroute` service's Domains field to `https://your-domain.com:20128`.
-   The `:20128` is the *internal* port Coolify's proxy forwards to. Public
-   traffic still arrives on HTTPS/443, and visitors use `https://your-domain.com`
-   with no port. Keep this value and `OMNIROUTE_PUBLIC_URL` in agreement.
+2. **Domain.** Set the `omniroute` service's Domains field to
+   `https://your-domain.com:20128`. The `:20128` is the *internal* port
+   Coolify's proxy forwards to. Public traffic still arrives on HTTPS/443 and
+   visitors use `https://your-domain.com` with no port.
 
-4. **Deploy.** The container reports healthy after roughly 15 to 30 seconds.
+   Leaving it empty is fine too: Coolify generates a domain from
+   `SERVICE_FQDN_OMNIROUTE_20128`.
 
-5. **First login** at your domain. The password is the generated value of
+3. **Deploy.** Coolify generates every secret on the first deploy and reuses
+   it afterwards, so redeploying will not rotate your keys. The container
+   reports healthy after roughly 15 to 30 seconds.
+
+4. **First login** at your domain. The password is the generated value of
    `SERVICE_PASSWORD_OMNIROUTE`, visible in Coolify under Environment
    Variables and injected as `INITIAL_PASSWORD`. Change it right after
    logging in: Dashboard → Settings → Security.
 
-6. **Add providers** in Dashboard → Providers. Keys added there are stored
+5. **Add providers** in Dashboard → Providers. Keys added there are stored
    encrypted in SQLite under `API_KEY_SECRET`, which is why they do not
    belong in environment variables.
 
 Point your tools (Claude Code, Cursor, Cline) at `https://your-domain.com/v1`
 with a key from Dashboard → API Keys. The compose sets `REQUIRE_API_KEY=true`,
 so a key is mandatory.
+
+### Why the repository path, and not pasted YAML
+
+`NEXT_PUBLIC_BASE_URL` has to be a full public origin with a scheme, or OAuth
+callbacks and every link the dashboard builds come out wrong. Coolify has two
+different parsers, and they disagree about that value.
+
+The **Docker Compose build pack** (this repo, an `Application` resource) reads
+your Domains entry, keeps the scheme, strips the routing port, and refreshes
+the value when you change the domain. `${SERVICE_URL_OMNIROUTE}` is therefore
+exactly `https://your-domain.com`.
+
+**Docker Compose Empty** (a pasted `Service` resource) goes through a different
+code path that stores the value with the scheme stripped, and freezes it at
+creation. There, `${SERVICE_URL_OMNIROUTE}` is a bare hostname.
+
+So: if you paste the file instead, override `NEXT_PUBLIC_BASE_URL` by hand in
+Environment Variables with the full `https://your-domain.com`. Everything else
+in the file behaves the same on both paths.
 
 ### Back up the encryption key
 
@@ -71,14 +92,6 @@ row, does lose them.
 Neither path gives you Redis. In that case **comment out `REDIS_URL`**.
 Pointing it at a Redis that is not running floods the logs with ioredis
 errors; without it the app falls back to an in-memory rate limiter.
-
-## Deploying from this git repository
-
-Coolify can also build from a repository (build pack: Docker Compose) rather
-than pasted YAML. It needs Coolify `v4.0.0-beta.411` or newer and a source
-connection with access to this repo, since it is private. The magic
-variables behave the same either way. The pasted-compose path has fewer
-moving parts, which is why it is the one documented above.
 
 ## Environment variables
 

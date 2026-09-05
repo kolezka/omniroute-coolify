@@ -3,13 +3,13 @@
 #  Image:  https://hub.docker.com/r/diegosouzapw/omniroute
 #  Source: https://github.com/diegosouzapw/OmniRoute
 #
-#  Deploy: Coolify project → New Resource → "Docker Compose Empty" →
-#  paste this file. Coolify generates every SERVICE_* secret once and
-#  reuses it on later deploys, so redeploying will not rotate the
-#  database encryption key.
+#  Deploy: Coolify project → New Resource → Public Repository, this repo,
+#  build pack "Docker Compose". That path lets Coolify inject the public
+#  URL itself. Pasting this file as "Docker Compose Empty" also works, but
+#  then set NEXT_PUBLIC_BASE_URL by hand (see the comment on it below).
 #
-#  ONE manual step is required before the first deploy: set
-#  OMNIROUTE_PUBLIC_URL (see the comment on it below).
+#  Coolify generates every SERVICE_* secret once and reuses it on later
+#  deploys, so redeploying will not rotate the database encryption key.
 #
 #  The app serves the dashboard and the API together on port 20128.
 #  Data lives in the `omniroute-data` volume.
@@ -64,14 +64,17 @@ services:
       # Machine fingerprint salt, unique per deployment.
       - MACHINE_ID_SALT=${SERVICE_BASE64_MACHINESALT}
 
-      # ── PUBLIC URL: set this by hand ──
-      # Coolify → Environment Variables → OMNIROUTE_PUBLIC_URL, e.g.
-      # https://omniroute.example.com  (scheme included, no trailing slash)
+      # ── PUBLIC URL, injected by Coolify ──
+      # Deploy this repo with the Docker Compose build pack and Coolify
+      # derives this from the service's Domains entry: it keeps the scheme
+      # and strips the routing port, and refreshes the value whenever you
+      # change the domain. You get https://your-domain.com, which is what
+      # OAuth callbacks and dashboard links need.
       #
-      # Deliberately NOT ${SERVICE_URL_OMNIROUTE}. On current Coolify the
-      # generated value is a bare hostname with no scheme, which breaks
-      # OAuth callbacks and every link the dashboard builds.
-      - NEXT_PUBLIC_BASE_URL=${OMNIROUTE_PUBLIC_URL}
+      # Pasting this file as "Docker Compose Empty" instead goes through a
+      # different parser that stores this WITHOUT a scheme. On that path,
+      # override NEXT_PUBLIC_BASE_URL by hand with the full https:// URL.
+      - NEXT_PUBLIC_BASE_URL=${SERVICE_URL_OMNIROUTE}
 
       # ── NETWORK ──
       # The image already defaults to this. Kept visible because it is the
