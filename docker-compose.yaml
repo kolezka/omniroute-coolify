@@ -5,8 +5,12 @@
 #
 #  Deploy: Coolify project → New Resource → Public Repository, this repo,
 #  build pack "Docker Compose". That path lets Coolify inject the public
-#  URL itself. Pasting this file as "Docker Compose Empty" also works, but
-#  then set NEXT_PUBLIC_BASE_URL by hand (see the comment on it below).
+#  URL itself. The file is named .yaml on purpose: Coolify's Compose file
+#  field defaults to /docker-compose.yaml and it reads that path literally.
+#
+#  Needs Coolify v4.0.0-beta.420.7 or newer. Older releases parse
+#  SERVICE_URL_* differently and hand the app a schemeless origin, which
+#  OmniRoute rejects at startup.
 #
 #  Coolify generates every SERVICE_* secret once and reuses it on later
 #  deploys, so redeploying will not rotate the database encryption key.
@@ -47,12 +51,19 @@ services:
       #
       # Signs dashboard session cookies. 64 random characters.
       - JWT_SECRET=${SERVICE_BASE64_64_JWTSECRET}
-      # Encrypts provider API keys in SQLite. 64 hex characters.
+      # HMAC secret behind the issued API key format
+      # sk-{machineId}-{keyId}-{crc8}. Unset means OmniRoute logs that CRC
+      # validation is disabled. It does not encrypt anything. 64 hex chars.
       - API_KEY_SECRET=${SERVICE_HEX_64_APIKEYSECRET}
-      # Encrypts the SQLite database at rest. 64 hex characters.
-      # Back this value up. Losing it means losing the data. Coolify keeps
-      # it across redeploys; rotate only via the VERSION variable below.
+      # Field-level AES-256-GCM encryption of stored provider credentials
+      # and tokens, not of the database as a whole. Unset means passthrough
+      # and the credentials sit in plaintext.
+      # Back this value up and do not change it: 3.8.50 ships no
+      # re-encryption path, so a new key makes stored credentials
+      # undecryptable. Coolify keeps it across redeploys.
       - STORAGE_ENCRYPTION_KEY=${SERVICE_HEX_64_STORAGEKEY}
+      # Recorded for future use. Nothing in 3.8.50 reads it, so bumping it
+      # rotates nothing.
       - STORAGE_ENCRYPTION_KEY_VERSION=v1
       # Authenticates the internal WebSocket bridge. Upstream marks this
       # required in production: unset means every bridge request is
@@ -73,15 +84,19 @@ services:
       #
       # Pasting this file as "Docker Compose Empty" instead goes through a
       # different parser that stores this WITHOUT a scheme. On that path,
-      # override NEXT_PUBLIC_BASE_URL by hand with the full https:// URL.
+      # edit the line below to a literal https://your-domain.com before
+      # creating the resource. Setting NEXT_PUBLIC_BASE_URL in the
+      # Environment Variables UI does NOT override it: the compose mapping
+      # still resolves from SERVICE_URL_OMNIROUTE and wins.
       - NEXT_PUBLIC_BASE_URL=${SERVICE_URL_OMNIROUTE}
 
       # ── NETWORK ──
       # The image already defaults to this. Kept visible because it is the
       # port the proxy must reach.
       - PORT=20128
-      # Required behind HTTPS. With false the browser drops the session
-      # cookie and login fails without an obvious error.
+      # Forces the Secure flag on session cookies. OmniRoute also sets it
+      # when the proxy reports HTTPS, but do not lean on that: keep this
+      # true behind TLS, and false only on plain HTTP.
       - AUTH_COOKIE_SECURE=true
       # Internal self-fetch for scheduled jobs. Loopback on purpose: never
       # point it at the public hostname.

@@ -24,7 +24,9 @@
 FROM diegosouzapw/omniroute:3.8.50
 
 # Data must survive a redeploy. In Coolify add a Storage/Volume mounted at
-# /app/data. The entrypoint refuses to start if it is not writable by uid 1000.
+# /app/data. If it is not writable by uid 1000 the entrypoint prints a
+# warning and starts anyway; the failure surfaces later, on the first
+# database write.
 VOLUME /app/data
 
 EXPOSE 20128

@@ -22,17 +22,29 @@ Deploy **from this repository**. Coolify then injects the public URL itself,
 which the pasted-compose path cannot do correctly (see the alternative below).
 The repo is public, so Coolify needs no deploy key.
 
+Requires **Coolify v4.0.0-beta.420.7 or newer**. Older releases run an
+earlier parser that hands the app a hostname with no scheme, and OmniRoute
+exits at startup rather than guessing.
+
 1. Coolify → project → **New Resource → Public Repository**. Give it
    `https://github.com/kolezka/omniroute-coolify`, branch `main`, and pick
-   **Docker Compose** as the build pack. The compose file is at the repo root.
+   **Docker Compose** as the build pack. Leave the Compose file field at its
+   default `/docker-compose.yaml`; the file in this repo is named to match.
+   Coolify reads that path literally and does not fall back to `.yml`.
 
 2. **Domain.** Set the `omniroute` service's Domains field to
    `https://your-domain.com:20128`. The `:20128` is the *internal* port
    Coolify's proxy forwards to. Public traffic still arrives on HTTPS/443 and
    visitors use `https://your-domain.com` with no port.
 
-   Leaving it empty is fine too: Coolify generates a domain from
-   `SERVICE_FQDN_OMNIROUTE_20128`.
+   **Edit or replace the generated domain, do not add yours as a second
+   entry.** Coolify takes the first domain in the list as canonical, so a
+   generated one left in front keeps OAuth and dashboard links pointing at it.
+
+   Leaving the field empty works only if the server has an **HTTPS** wildcard
+   domain configured. Without one Coolify falls back to an `http://` sslip.io
+   address; the app starts, but `AUTH_COOKIE_SECURE=true` then makes a Secure
+   cookie the browser will not send over HTTP, and login bounces.
 
 3. **Deploy.** Coolify generates every secret on the first deploy and reuses
    it afterwards, so redeploying will not rotate your keys. The container
@@ -43,9 +55,9 @@ The repo is public, so Coolify needs no deploy key.
    Variables and injected as `INITIAL_PASSWORD`. Change it right after
    logging in: Dashboard → Settings → Security.
 
-5. **Add providers** in Dashboard → Providers. Keys added there are stored
-   encrypted in SQLite under `API_KEY_SECRET`, which is why they do not
-   belong in environment variables.
+5. **Add providers** in Dashboard → Providers. Their credentials are stored
+   with field-level encryption under `STORAGE_ENCRYPTION_KEY`, which is why
+   they do not belong in environment variables.
 
 Point your tools (Claude Code, Cursor, Cline) at `https://your-domain.com/v1`
 with a key from Dashboard → API Keys. The compose sets `REQUIRE_API_KEY=true`,
@@ -66,19 +78,35 @@ exactly `https://your-domain.com`.
 code path that stores the value with the scheme stripped, and freezes it at
 creation. There, `${SERVICE_URL_OMNIROUTE}` is a bare hostname.
 
-So: if you paste the file instead, override `NEXT_PUBLIC_BASE_URL` by hand in
-Environment Variables with the full `https://your-domain.com`. Everything else
-in the file behaves the same on both paths.
+So: if you paste the file instead, **edit the `NEXT_PUBLIC_BASE_URL` line in
+the YAML** to a literal `https://your-domain.com` before creating the
+resource. Setting `NEXT_PUBLIC_BASE_URL` in the Environment Variables UI does
+not help: the compose mapping survives into the deployed file and keeps
+resolving from `SERVICE_URL_OMNIROUTE`, so it wins. Everything else in the
+file behaves the same on both paths.
 
-### Back up the encryption key
+### Back up the key, and the data
 
-`STORAGE_ENCRYPTION_KEY` encrypts the whole database. Upstream is blunt: lose
-the key and you lose the data. Copy its generated value out of Coolify into
-your password manager before you put anything real into the instance.
+`STORAGE_ENCRYPTION_KEY` gives field-level AES-256-GCM encryption of stored
+provider credentials and tokens. It does **not** encrypt the database as a
+whole, so treat the volume and every backup of it as sensitive regardless.
+
+Copy the generated value out of Coolify into your password manager before you
+put anything real into the instance, and then leave it alone. Version 3.8.50
+ships no re-encryption path: change the key and the stored credentials become
+undecryptable, with only a logged mismatch to tell you.
+`STORAGE_ENCRYPTION_KEY_VERSION` is recorded but never read, so bumping it
+rotates nothing.
 
 Coolify generates each `SERVICE_*` value once, stores it, and reuses it. A
 redeploy will not rotate your keys. Deleting the resource, or the variable
 row, does lose them.
+
+The automatic SQLite backups live in `db_backups` **inside the same
+`/app/data` volume** as the live database, so they survive a redeploy but not
+the loss of the host or the volume. Add an off-host copy of the
+`omniroute-data` volume, test restoring it, and keep the matching encryption
+key alongside it.
 
 ## Alternative: single Docker Image or Dockerfile resource
 
@@ -100,15 +128,15 @@ Required before the first start:
 | Variable | Role | Manual generation |
 |---|---|---|
 | `JWT_SECRET` | signs dashboard session cookies | `openssl rand -base64 48` |
-| `API_KEY_SECRET` | encrypts provider keys in the database | `openssl rand -hex 32` |
-| `OMNIROUTE_WS_BRIDGE_SECRET` | authenticates the internal WebSocket bridge; unset means every bridge request is rejected | `openssl rand -base64 32` |
+| `API_KEY_SECRET` | HMAC behind the issued key format `sk-{machineId}-{keyId}-{crc8}`; unset disables CRC validation | `openssl rand -hex 32` |
+| `OMNIROUTE_WS_BRIDGE_SECRET` | authenticates the internal WebSocket bridge. Upstream marks it required in production; leaving it out lets the standalone wrapper invent a fresh one on every restart | `openssl rand -base64 32` |
 | `INITIAL_PASSWORD` | bootstrap password for the first login | `openssl rand -base64 16` |
 
 Recommended:
 
 | Variable | Role | Manual generation |
 |---|---|---|
-| `STORAGE_ENCRYPTION_KEY` | encrypts the SQLite database at rest | `openssl rand -hex 32` |
+| `STORAGE_ENCRYPTION_KEY` | field-level encryption of stored provider credentials; unset means plaintext | `openssl rand -hex 32` |
 | `MACHINE_ID_SALT` | machine fingerprint salt, unique per deployment | `openssl rand -hex 16` |
 
 The secrets are passed through a KDF, so they need not be hex. Any strong
@@ -118,7 +146,7 @@ Behind a reverse proxy:
 
 | Variable | Value | Why |
 |---|---|---|
-| `AUTH_COOKIE_SECURE` | `true` | required behind HTTPS; with `false` the browser drops the session cookie and login fails. On plain HTTP it must be `false` |
+| `AUTH_COOKIE_SECURE` | `true` | forces the Secure flag behind HTTPS. OmniRoute also sets it when the proxy reports HTTPS, but do not lean on that. `false` only on plain HTTP |
 | `NEXT_PUBLIC_BASE_URL` | your public `https://...` | OAuth callbacks and generated links |
 | `BASE_URL` | `http://127.0.0.1:20128` | internal self-fetch for scheduled jobs; deliberately loopback |
 | `REQUIRE_API_KEY` | `true` | a public instance should not proxy anonymously |
@@ -159,8 +187,9 @@ is the real thing.
 Data lives in the `omniroute-data` named volume mounted at `/app/data`. The
 container runs as `node` (uid 1000); with a named volume Docker handles the
 permissions. If you switch to a host bind-mount, set the owner with
-`chown -R 1000:1000 <directory>`, otherwise the entrypoint
-(`check-permissions.sh`) stops startup and prints instructions.
+`chown -R 1000:1000 <directory>`. If you do not, the entrypoint
+(`check-permissions.sh`) prints a warning and starts the app anyway, and the
+failure surfaces later on the first database write.
 
 ## Troubleshooting
 
