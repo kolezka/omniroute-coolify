@@ -91,7 +91,7 @@ services:
       # Forces the Secure flag on session cookies. Keep this
       # true behind TLS, and false only on plain HTTP.
       - AUTH_COOKIE_SECURE=false
-      - BASE_URL=http://127.0.0.1:20128
+      - BASE_URL=http://127.0.0.1:${PORT:-20128}
 
       # ── SECURITY ──
       # Anything reachable from the internet should not proxy anonymously.
