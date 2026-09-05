@@ -2,7 +2,7 @@
 #  OmniRoute: optional Dockerfile for Coolify's "Dockerfile" build pack.
 #
 #  You probably do not need this. The Docker Hub image runs as-is, and the
-#  preferred deployment is docker-compose.yml from this repo. Reach for
+#  preferred deployment is docker-compose.yaml from this repo. Reach for
 #  this file only if you want a plain Dockerfile resource in Coolify, or
 #  need to bake something extra into the image.
 #

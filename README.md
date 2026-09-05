@@ -112,14 +112,17 @@ key alongside it.
 
 - **Docker Image**: use `diegosouzapw/omniroute:3.8.50`, port 20128, add a
   Volume for `/app/data`, and paste the variables from `.env.example`.
-  Sections 1 to 3 are the minimum; generate the secrets with the `openssl`
-  commands in the comments.
+  Sections 1, 3 and 4 are the minimum, and section 2 is worth having;
+  generate the secrets with the `openssl` commands in the comments. Section 4
+  is not optional on a public instance: it carries `REQUIRE_API_KEY`.
 - **Dockerfile**: use the bundled `Dockerfile`, a thin wrapper around the
   image, and configure the rest as above.
 
-Neither path gives you Redis. In that case **comment out `REDIS_URL`**.
-Pointing it at a Redis that is not running floods the logs with ioredis
-errors; without it the app falls back to an in-memory rate limiter.
+Neither path gives you Redis, which is why `.env.example` ships `REDIS_URL`
+commented out. Leave it that way unless you actually run one: pointing ioredis
+at a Redis that is not there floods the logs with connection errors. Without
+it the app falls back to an in-memory rate limiter, which upstream does not
+recommend for production.
 
 ## Environment variables
 
