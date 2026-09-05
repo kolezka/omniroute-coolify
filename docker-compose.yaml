@@ -97,8 +97,10 @@ services:
       - PORT=20128
       # Forces the Secure flag on session cookies. OmniRoute also sets it
       # when the proxy reports HTTPS, but do not lean on that: keep this
-      # true behind TLS, and false only on plain HTTP.
-      - AUTH_COOKIE_SECURE=true
+      # true behind TLS, and false only on plain HTTP. Overridable from
+      # Coolify env; defaults to false because .app.lan is served over HTTP
+      # and browsers silently drop Secure cookies there (login loops back).
+      - AUTH_COOKIE_SECURE=${AUTH_COOKIE_SECURE:-false}
       # Internal self-fetch for scheduled jobs. Loopback on purpose: never
       # point it at the public hostname.
       - BASE_URL=http://127.0.0.1:20128
