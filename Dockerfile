@@ -1,26 +1,30 @@
 # ──────────────────────────────────────────────────────────────────────
-#  OmniRoute — optional Dockerfile for Coolify ("Dockerfile" build pack)
+#  OmniRoute: optional Dockerfile for Coolify's "Dockerfile" build pack.
 #
-#  The Docker Hub image is ready to use as-is — the preferred deployment
-#  is docker-compose.yml from this repo ("Docker Compose Empty" build
-#  pack). This file is only useful if you prefer a simple Dockerfile /
-#  Docker Image resource in Coolify, or want to bake something extra
-#  into the image.
+#  You probably do not need this. The Docker Hub image runs as-is, and the
+#  preferred deployment is docker-compose.yml from this repo. Reach for
+#  this file only if you want a plain Dockerfile resource in Coolify, or
+#  need to bake something extra into the image.
 #
-#  Built into the image (no need to repeat):
-#    EXPOSE 20128, USER node, DATA_DIR=/app/data,
-#    HEALTHCHECK: node healthcheck.mjs (every 30 s),
-#    ENTRYPOINT: check-permissions.sh → node dev/run-standalone.mjs
+#  Already in the base image, do not repeat it:
+#    EXPOSE 20128, USER node (uid 1000), WORKDIR /app,
+#    PORT=20128, HOSTNAME=0.0.0.0, NODE_ENV=production,
+#    DATA_DIR=/app/data, OMNIROUTE_MEMORY_MB=1024,
+#    NODE_OPTIONS=--max-old-space-size=1024,
+#    HEALTHCHECK: node healthcheck.mjs (30s interval, 15s start period),
+#    ENTRYPOINT check-permissions.sh, CMD node dev/run-standalone.mjs
 #
-#  For production pin a version instead of latest, e.g.:
-#    FROM diegosouzapw/omniroute:3.8.46
-#  Chromium variant (web-cookie providers: gemini-web / claude-web):
-#    FROM diegosouzapw/omniroute:latest-web
+#  Chromium variant, needed only for web-cookie providers
+#  (gemini-web, claude-web, claude-turnstile), roughly twice the size:
+#    FROM diegosouzapw/omniroute:3.8.50-web
 # ──────────────────────────────────────────────────────────────────────
-FROM diegosouzapw/omniroute:latest
 
-# Data must persist across deployments — in Coolify add a Storage/Volume
-# mounted at /app/data (owner: uid 1000 / user node).
+# Pinned on purpose. `latest` moved to a broken build once already
+# (v3.8.45/3.8.46 crashed on startup, fixed in 3.8.47). Bump deliberately.
+FROM diegosouzapw/omniroute:3.8.50
+
+# Data must survive a redeploy. In Coolify add a Storage/Volume mounted at
+# /app/data. The entrypoint refuses to start if it is not writable by uid 1000.
 VOLUME /app/data
 
 EXPOSE 20128
