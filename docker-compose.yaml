@@ -24,9 +24,9 @@ services:
     # Pinned deliberately. `latest` once moved to a build that crashed on
     # startup (3.8.45/3.8.46, fixed in 3.8.47). Bump this line when you
     # have decided to upgrade, do not inherit a surprise.
-    # The `-web` variant bundles Chromium and is about twice the size. It
-    # is needed ONLY for web-cookie providers (gemini-web, claude-web,
-    # claude-turnstile).
+    # The `-web` variant bundles Chromium and is larger (1.67 GB against
+    # 1.24 GB of compressed layers for 3.8.50 on amd64). It is needed ONLY
+    # for web-cookie providers (gemini-web, claude-web, claude-turnstile).
     image: diegosouzapw/omniroute:3.8.50
     restart: unless-stopped
     stop_grace_period: 40s
@@ -52,18 +52,19 @@ services:
       # Signs dashboard session cookies. 64 random characters.
       - JWT_SECRET=${SERVICE_BASE64_64_JWTSECRET}
       # HMAC secret behind the issued API key format
-      # sk-{machineId}-{keyId}-{crc8}. Unset means OmniRoute logs that CRC
-      # validation is disabled. It does not encrypt anything. 64 hex chars.
+      # sk-{machineId}-{keyId}-{crc8}. It does not encrypt anything.
+      # 64 hex chars. Left to the image, the bootstrap would generate one
+      # into the data volume; letting Coolify own it keeps it visible and
+      # backed up with the rest of your deployment config.
       - API_KEY_SECRET=${SERVICE_HEX_64_APIKEYSECRET}
       # Field-level AES-256-GCM encryption of stored provider credentials
-      # and tokens, not of the database as a whole. Unset means passthrough
-      # and the credentials sit in plaintext.
+      # and tokens, not of the database as a whole.
       # Back this value up and do not change it: 3.8.50 ships no
       # re-encryption path, so a new key makes stored credentials
       # undecryptable. Coolify keeps it across redeploys.
       - STORAGE_ENCRYPTION_KEY=${SERVICE_HEX_64_STORAGEKEY}
-      # Recorded for future use. Nothing in 3.8.50 reads it, so bumping it
-      # rotates nothing.
+      # Initialized and persisted by the image bootstrap, but no encryption
+      # or decryption path reads it. Bumping it rotates nothing.
       - STORAGE_ENCRYPTION_KEY_VERSION=v1
       # Authenticates the internal WebSocket bridge. Upstream marks this
       # required in production: unset means every bridge request is

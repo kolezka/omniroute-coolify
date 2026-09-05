@@ -95,8 +95,14 @@ Copy the generated value out of Coolify into your password manager before you
 put anything real into the instance, and then leave it alone. Version 3.8.50
 ships no re-encryption path: change the key and the stored credentials become
 undecryptable, with only a logged mismatch to tell you.
-`STORAGE_ENCRYPTION_KEY_VERSION` is recorded but never read, so bumping it
+`STORAGE_ENCRYPTION_KEY_VERSION` is initialized and persisted by the
+bootstrap, but no encryption or decryption path reads it, so bumping it
 rotates nothing.
+
+Left to itself the image would generate the missing secrets on first boot and
+persist them to `$DATA_DIR/server.env`, so nothing is silently stored in
+plaintext. Letting Coolify supply them instead keeps the values out of the
+data volume and visible where you can back them up.
 
 Coolify generates each `SERVICE_*` value once, stores it, and reuses it. A
 redeploy will not rotate your keys. Deleting the resource, or the variable
@@ -120,7 +126,8 @@ key alongside it.
 
 Neither path gives you Redis, which is why `.env.example` ships `REDIS_URL`
 commented out. Leave it that way unless you actually run one: pointing ioredis
-at a Redis that is not there floods the logs with connection errors. Without
+at a host that does not resolve costs connection retries and logs errors on
+the request paths that use it, though an idle container stays quiet. Without
 it the app falls back to an in-memory rate limiter, which upstream does not
 recommend for production.
 
@@ -131,7 +138,7 @@ Required before the first start:
 | Variable | Role | Manual generation |
 |---|---|---|
 | `JWT_SECRET` | signs dashboard session cookies | `openssl rand -base64 48` |
-| `API_KEY_SECRET` | HMAC behind the issued key format `sk-{machineId}-{keyId}-{crc8}`; unset disables CRC validation | `openssl rand -hex 32` |
+| `API_KEY_SECRET` | HMAC behind the issued key format `sk-{machineId}-{keyId}-{crc8}`; encrypts nothing | `openssl rand -hex 32` |
 | `OMNIROUTE_WS_BRIDGE_SECRET` | authenticates the internal WebSocket bridge. Upstream marks it required in production; leaving it out lets the standalone wrapper invent a fresh one on every restart | `openssl rand -base64 32` |
 | `INITIAL_PASSWORD` | bootstrap password for the first login | `openssl rand -base64 16` |
 
@@ -139,7 +146,7 @@ Recommended:
 
 | Variable | Role | Manual generation |
 |---|---|---|
-| `STORAGE_ENCRYPTION_KEY` | field-level encryption of stored provider credentials; unset means plaintext | `openssl rand -hex 32` |
+| `STORAGE_ENCRYPTION_KEY` | field-level encryption of stored provider credentials | `openssl rand -hex 32` |
 | `MACHINE_ID_SALT` | machine fingerprint salt, unique per deployment | `openssl rand -hex 16` |
 
 The secrets are passed through a KDF, so they need not be hex. Any strong
@@ -176,7 +183,8 @@ is the real thing.
 
 - `3.8.50` is the current release; `3.8.50-web` adds Chromium and
   Playwright, needed only for web-cookie providers (`gemini-web`,
-  `claude-web`, `claude-turnstile`), at roughly twice the size.
+  `claude-web`, `claude-turnstile`). It is larger, but not by as much as
+  often claimed: 1.67 GB of layers against 1.24 GB on amd64.
 - The compose file pins a version on purpose. This project releases very
   often, and `latest` has shipped a broken build before (see below).
 - To update: change the tag, then **Redeploy**. Migrations run on startup

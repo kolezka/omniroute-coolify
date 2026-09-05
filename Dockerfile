@@ -15,7 +15,8 @@
 #    ENTRYPOINT check-permissions.sh, CMD node dev/run-standalone.mjs
 #
 #  Chromium variant, needed only for web-cookie providers
-#  (gemini-web, claude-web, claude-turnstile), roughly twice the size:
+#  (gemini-web, claude-web, claude-turnstile). Larger, though not by as much
+#  as often claimed: 1.67 GB against 1.24 GB of layers on amd64.
 #    FROM diegosouzapw/omniroute:3.8.50-web
 # ──────────────────────────────────────────────────────────────────────
 
