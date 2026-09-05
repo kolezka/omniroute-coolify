@@ -35,6 +35,14 @@ services:
         condition: service_healthy
     volumes:
       - omniroute-data:/app/data
+    # Optional, and only if you would rather not look up the container IP every
+    # time you need the loopback-only Services tab (9Router lives there). Binds
+    # to the host's own loopback, so it adds nothing reachable from outside;
+    # reach it with `ssh -L 20128:127.0.0.1:20128 user@your-server`.
+    # Coolify manages routing through Traefik and may drop this mapping. The
+    # README documents the container-IP route, which needs no compose change.
+    # ports:
+    #   - "127.0.0.1:20128:20128"
     environment:
       # ── ROUTING ──
       - SERVICE_FQDN_OMNIROUTE_20128
@@ -109,6 +117,24 @@ services:
       # Rate limiter and shared cache. Drop this together with the redis
       # service to fall back to the in-memory limiter.
       - REDIS_URL=redis://redis:6379
+
+      # ── EMBEDDED SERVICES: 9Router ──
+      # OmniRoute can run 9Router as a child process and expose its models as
+      # `9router/{sub}/{model}`. Nothing ships in the image: on request it runs
+      # `npm install 9router` into /app/data/services/9router (measured 71 MB,
+      # 4 s on 3.8.50 with 9router 0.5.69) and spawns it on 127.0.0.1.
+      #
+      # This variable only tells OmniRoute which port the child listens on. It
+      # is read once at boot, so changing it needs a restart. Leave it at the
+      # default unless something else in the container already holds 20130.
+      # The port is never published; the dashboard reaches it over loopback.
+      - NINEROUTER_PORT=20130
+      # The child is spawned with --max-old-space-size=6144 regardless of
+      # OMNIROUTE_MEMORY_MB. Idle RSS measured 138 MB, but give the host room.
+      #
+      # Installing it is NOT possible from the public domain: every
+      # /api/services/* route is loopback/LAN-only and Traefik's forwarding
+      # headers put your browser outside that. See README, "9Router".
 
       # ── OPTIONAL ──
       # Heap default is 1024 MB. Raise both together, and give the host

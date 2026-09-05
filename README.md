@@ -164,6 +164,12 @@ Behind a reverse proxy:
 | `MAX_BODY_SIZE_BYTES` | `5242880` | upstream's hardening recommendation; the default is 10 MB |
 | `OMNIROUTE_TRUST_PROXY` | leave unset | only for setups where direct container access is blocked and the proxy sanitises forwarded headers |
 
+Embedded services:
+
+| Variable | Value | Why |
+|---|---|---|
+| `NINEROUTER_PORT` | `20130` | loopback port of the 9Router child process, read at boot. See [9Router as an embedded service](#9router-as-an-embedded-service) |
+
 Full upstream list:
 [.env.example in the OmniRoute repo](https://github.com/diegosouzapw/OmniRoute/blob/main/.env.example).
 
@@ -201,6 +207,87 @@ permissions. If you switch to a host bind-mount, set the owner with
 `chown -R 1000:1000 <directory>`. If you do not, the entrypoint
 (`check-permissions.sh`) prints a warning and starts the app anyway, and the
 failure surfaces later on the first database write.
+
+## 9Router as an embedded service
+
+OmniRoute can run [9Router](https://www.npmjs.com/package/9router) as a child
+process and expose its models to the router as `9router/{sub}/{model}`. Nothing
+about it ships in the image. On request OmniRoute runs
+`npm install 9router@latest` into `/app/data/services/9router`, then spawns
+`node .../9router/app/server.js` bound to `127.0.0.1:20130`.
+
+Measured on `3.8.50` with 9router `0.5.69`: the install takes about 4 seconds
+and 71 MB in the data volume; the child idles at 138 MB RSS. It is spawned with
+`--max-old-space-size=6144` whatever `OMNIROUTE_MEMORY_MB` says, so size the
+host for a process that is allowed to grow, not for the idle figure.
+
+Because the install lives in the volume and the enabled flag lives in the
+database, both survive a redeploy. A recreated container starts 9Router again
+on its own.
+
+### The catch: you cannot install it from your public domain
+
+Every `/api/services/*` route, and the embedded 9Router UI at
+`/dashboard/providers/services/9router/embed/*`, is loopback-and-LAN only.
+OmniRoute makes that decision from the real TCP peer and treats any request
+carrying `X-Forwarded-For` or `X-Real-IP` as remote, regardless of who sent it.
+Coolify serves your domain through Traefik, which always sets those headers, so
+the Services tab answers `403 LOCAL_ONLY` on the public URL. A valid session
+does not help; the check runs before authentication.
+
+Reaching it from inside the server's own network does work. Both a caller on
+the Docker network and a caller arriving through the published port get past
+the gate and are then asked for normal authentication.
+
+This is not a one-off. 9Router's own configuration screen sits behind the same
+gate, so you need this route again whenever you change its providers.
+
+### Install it through an SSH tunnel
+
+On the Coolify host, find the container's address on the Docker network:
+
+```bash
+docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' \
+  "$(docker ps --filter name=omniroute --format '{{.Names}}' | head -1)"
+```
+
+Then, from your workstation:
+
+```bash
+ssh -L 20128:<that-address>:20128 user@your-coolify-host
+```
+
+Open `http://localhost:20128`, log in, and go to **Providers → Services →
+9Router**: *Install*, *Start*, and switch *Auto-start* on. Uncommenting the
+`ports:` block in `docker-compose.yaml` gives you a stable
+`ssh -L 20128:127.0.0.1:20128` instead of an address that changes on redeploy.
+
+### Or drive the API from the host
+
+Same thing without a browser. Run this on the Coolify host, with `CIP` set to
+the address printed above and the password you use for the dashboard:
+
+```bash
+CIP=172.18.0.4
+curl -sc /tmp/or.jar -X POST "http://$CIP:20128/api/auth/login" \
+  -H 'Content-Type: application/json' -d '{"password":"YOUR_DASHBOARD_PASSWORD"}'
+curl -sb /tmp/or.jar -X POST "http://$CIP:20128/api/services/9router/install" \
+  -H 'Content-Type: application/json' -d '{"version":"latest"}'
+curl -sb /tmp/or.jar -X POST "http://$CIP:20128/api/services/9router/start"
+curl -sb /tmp/or.jar -X POST "http://$CIP:20128/api/services/9router/auto-start" \
+  -H 'Content-Type: application/json' -d '{"enabled":true}'
+curl -sb /tmp/or.jar "http://$CIP:20128/api/services/9router/status"
+rm -f /tmp/or.jar
+```
+
+A healthy result reads `"state":"running"` with `"autoStart":true`. Note that
+`docker exec` into the container is not a shortcut here: the image ships
+neither `curl` nor `wget`.
+
+The `port` field in that status payload is unreliable — 3.8.50 has been seen
+reporting a value the child never bound. What the process actually listens on
+is `NINEROUTER_PORT`, and `node -e 'fetch("http://127.0.0.1:20130/")'` inside
+the container is the honest check.
 
 ## Troubleshooting
 
@@ -246,3 +333,24 @@ matters only under memory pressure, where a background save could fail. To
 silence it, run `sudo sysctl vm.overcommit_memory=1` on the **Coolify host**
 and add `vm.overcommit_memory = 1` to `/etc/sysctl.conf`. It is a host kernel
 setting and cannot be set from a compose file.
+
+### `403 LOCAL_ONLY` on the Services tab
+
+Expected on the public URL. `/api/services/*` accepts loopback and private-LAN
+callers only, and Traefik's `X-Forwarded-For` puts your browser outside that
+regardless of the session. Reach it through the SSH tunnel described in
+[9Router as an embedded service](#9router-as-an-embedded-service).
+
+### 9Router installed but never comes up
+
+Check, in this order:
+
+- `ECONNREFUSED 127.0.0.1:20130` right after boot is normal noise while the
+  child is still starting, and a problem only if it keeps repeating.
+- The status endpoint's `state` can lag reality. Ask the process instead:
+  `docker exec <container> node -e 'fetch("http://127.0.0.1:20130/").then(r=>console.log(r.status)).catch(e=>console.log(e.cause?.code))'`.
+- Install failures are almost always the data volume or the network: the
+  installer needs `/app/data` writable by uid 1000 and outbound access to the
+  npm registry, and gives up after 5 minutes.
+- `OMNIROUTE_DISABLE_BACKGROUND_SERVICES` must not be set. It skips the whole
+  embedded-services bootstrap, so auto-start never runs.
