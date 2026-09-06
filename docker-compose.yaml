@@ -27,7 +27,7 @@ services:
     # The `-web` variant bundles Chromium and is larger (1.67 GB against
     # 1.24 GB of compressed layers for 3.8.50 on amd64). It is needed ONLY
     # for web-cookie providers (gemini-web, claude-web, claude-turnstile).
-    image: diegosouzapw/omniroute:3.8.50
+    image: diegosouzapw/omniroute:latest
     restart: unless-stopped
     stop_grace_period: 40s
     depends_on:
